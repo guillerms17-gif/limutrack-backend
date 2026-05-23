@@ -119,7 +119,10 @@ function haversineKm(lat1,lng1,lat2,lng2){
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
-function hoyStr(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid'}).format(new Date()); }
+function hoyStr(){
+  const s=new Date().toLocaleString('sv-SE',{timeZone:'Europe/Madrid'});
+  return s.slice(0,10);
+}
 
 function tickSimulacion() {
   const db = leerDB();
