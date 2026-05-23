@@ -409,6 +409,18 @@ app.delete('/api/v1/collarens/:id', auth, (req, res) => {
   res.json({ ok:true });
 });
 
+// ── Heatmap — historial extendido de posiciones ──────────
+app.get('/api/v1/heatmap/:vacaId', auth, (req, res) => {
+  const db = leerDB();
+  const vacaId = parseInt(req.params.vacaId);
+  const dias = parseInt(req.query.dias)||7;
+  const cutoff = new Date(Date.now()-dias*864e5).toISOString();
+  const pts = db.telemetria
+    .filter(t=>String(t.vaca_id)===String(vacaId)&&t.ts>=cutoff&&t.lat&&t.lng)
+    .map(t=>({lat:t.lat,lng:t.lng,ts:t.ts}));
+  res.json({ok:true,data:pts,total:pts.length});
+});
+
 // ── Movimiento diario — últimos 7 días por vaca ──────────
 app.get('/api/v1/movement/:vacaId', auth, (req, res) => {
   const db = leerDB();
