@@ -49,7 +49,7 @@ function guardarDB(data) {
 // Inicializar BD si no existe
 if (!fs.existsSync(DB_FILE)) {
   console.log('📋 Creando base de datos inicial...');
-  const hash = bcrypt.hashSync('limutrack123', 10);
+  const hash = '$2a$10$kNvvQO8GqVuZDxkpTKbj9OUjORxQZpLeG.hV1HJb48jE6akOXFOKC'; // pre-computado
   guardarDB({
     usuarios: [{ id:1, nombre:'Admin', email:'admin@limutrack.es', password:hash, finca_id:'finca_el_roble', rol:'admin' }],
     vacas: [
