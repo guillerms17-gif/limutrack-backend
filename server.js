@@ -331,11 +331,13 @@ app.post('/api/v1/telemetry', (req, res) => {
 
 // ── Historial GPS de una vaca (Punto 2) ───────────────
 app.get('/api/v1/telemetry/:vacaId', auth, (req, res) => {
-  const db   = leerDB();
-  const rows = db.telemetria
+  const db    = leerDB();
+  const limit = parseInt(req.query.limit)||200;
+  const rows  = db.telemetria
     .filter(t => String(t.vaca_id) === req.params.vacaId)
-    .slice(-200);
-  res.json({ ok:true, data:rows, total:rows.length });
+    .slice(-limit)
+    .map(t=>({ lat:t.lat, lng:t.lng, temp:t.temp, actividad:t.actividad, ts:t.ts }));
+  res.json({ ok:true, data:rows });
 });
 
 // ── Alertas gestionables (Punto 6) ────────────────────
