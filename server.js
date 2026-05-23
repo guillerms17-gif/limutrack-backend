@@ -411,6 +411,21 @@ app.delete('/api/v1/collarens/:id', auth, (req, res) => {
   res.json({ ok:true });
 });
 
+// ── Telemetría bulk — últimos N puntos de todas las vacas ──
+app.get('/api/v1/telemetry/bulk', auth, (req, res) => {
+  const db    = leerDB();
+  const limit = parseInt(req.query.limit)||30;
+  const vacas = db.vacas.filter(v=>v.activa).map(v=>v.id);
+  const result = {};
+  vacas.forEach(vid=>{
+    result[vid]=db.telemetria
+      .filter(t=>String(t.vaca_id)===String(vid))
+      .slice(-limit)
+      .map(t=>({lat:t.lat,lng:t.lng,temp:t.temp,actividad:t.actividad,ts:t.ts}));
+  });
+  res.json({ok:true,data:result});
+});
+
 // ── Heatmap — historial extendido de posiciones ──────────
 app.get('/api/v1/heatmap/:vacaId', auth, (req, res) => {
   const db = leerDB();
