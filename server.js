@@ -412,7 +412,7 @@ io.on('connection', socket => {
 });
 
 // ── Arrancar ───────────────────────────────────────────
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('🐄 ════════════════════════════════════════');
   console.log('   LIMUTRACK BACKEND v2.0');
