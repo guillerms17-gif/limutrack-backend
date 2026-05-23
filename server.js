@@ -178,6 +178,15 @@ function tickSimulacion() {
     // Guardar en historial de telemetría
     db.telemetria.push({ vaca_id: v.id, collar_id: `sim_${v.id}`, lat, lng, temp, actividad, bateria: v.bateria_collar, ts });
 
+    // Acumular movimiento diario en BD
+    const hoy=hoyStr();
+    if(!db.movimiento)db.movimiento={};
+    if(!db.movimiento[hoy])db.movimiento[hoy]={};
+    if(!db.movimiento[hoy][v.id])db.movimiento[hoy][v.id]={km:0,ultima:null};
+    const mov=db.movimiento[hoy][v.id];
+    if(mov.ultima){const d=haversineKm(mov.ultima.lat,mov.ultima.lng,lat,lng);if(d<0.5)mov.km=parseFloat((mov.km+d).toFixed(4));}
+    mov.ultima={lat,lng};
+
     // Actualizar vaca
     const idx = db.vacas.findIndex(x => x.id === v.id);
     db.vacas[idx] = { ...v, lat, lng, temp, actividad, comp_actual, salud };
