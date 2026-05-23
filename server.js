@@ -1,3 +1,7 @@
+process.on('uncaughtException', err => { console.error('CRASH:', err.message, err.stack); process.exit(1); });
+process.on('unhandledRejection', err => { console.error('REJECT:', err); process.exit(1); });
+console.log('STARTING LimuTrack v2.0...');
+
 // ═══════════════════════════════════════════════════════
 //  LIMUTRACK BACKEND v2.0
 //  1. GPS simulado en tiempo real (cada 30s)
