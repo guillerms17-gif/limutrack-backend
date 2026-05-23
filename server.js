@@ -159,15 +159,17 @@ function tickSimulacion() {
     if (lng > FENCE.e || lng < FENCE.w) { velState[v.id].dlng *= -1; lng = Math.max(FENCE.w, Math.min(FENCE.e, lng)); }
 
     // Simular temperatura (variación lenta ±0.05°C por tick)
-    const temp = parseFloat(Math.max(38.0, Math.min(40.2, v.temp + (Math.random()-0.5)*0.05)).toFixed(1));
+    const temp = parseFloat(Math.max(38.0, Math.min(40.2, v.temp + (Math.random()-0.5)*0.06)).toFixed(1)); // ±0.03°C por tick → cambios visibles en horas
 
-    // Simular actividad (varía ±8 por tick, suavizado)
-    const actBase = { Caminando:75, Pastando:50, Rumiando:25, Descansando:8 }[v.comp_actual] || 50;
-    const actividad = Math.round(Math.max(0, Math.min(100, v.actividad * 0.8 + actBase * 0.2 + (Math.random()-0.5)*12)));
+    // Actividad — suavizado 0.93 → transiciones en ~15min (realista Limusina)
+    // 0.93 = 97% del camino en ~16 ticks (8min). Noise ±3 = variación visible pero suave
+    const actBase = { Caminando:72, Pastando:48, Rumiando:22, Descansando:7 }[v.comp_actual] || 48;
+    const noise = (Math.random()-0.5)*6; // ±3 por tick — visible pero no brusco
+    const actividad = Math.round(Math.max(0, Math.min(100, v.actividad * 0.93 + actBase * 0.07 + noise)));
 
     // Cambio ocasional de comportamiento (~5% por tick)
     let comp_actual = v.comp_actual;
-    if (Math.random() < 0.05) {
+    if (Math.random() < 0.015) { // ~1.5% por tick = cambia comportamiento cada ~25 min de media
       const comps = ['Pastando','Pastando','Pastando','Rumiando','Rumiando','Caminando','Descansando'];
       comp_actual = comps[Math.floor(Math.random() * comps.length)];
     }
