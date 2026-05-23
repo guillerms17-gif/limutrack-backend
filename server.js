@@ -23,7 +23,7 @@ const path       = require('path');
 
 const PORT       = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'limutrack_secret_2024';
-const DB_FILE    = path.join(__dirname, 'limutrack_db.json');
+const DB_FILE    = process.env.DB_PATH || path.join('/data', 'limutrack_db.json');
 
 // Geocerca de la finca
 const FENCE = { n:40.9246, s:40.9200, e:-5.8852, w:-5.8930 };
