@@ -412,13 +412,11 @@ app.get('/api/v1/movement/:vacaId', auth, (req, res) => {
   const db = leerDB();
   const vacaId = parseInt(req.params.vacaId);
   const resultado = [];
-  const hoy = hoyStr();
-  // Últimos 7 días
   for(let i=6;i>=0;i--){
-    const d=new Date(Date.now()-i*864e5);
-    const fecha=d.toISOString().slice(0,10);
-    const km=db.movimiento[fecha]?.[vacaId]?.km||0;
-    resultado.push({fecha, km:parseFloat(km.toFixed(2)), esHoy:fecha===hoy});
+    // Siempre Madrid para que coincida con las claves del db.movimiento
+    const fecha=new Date(Date.now()-i*864e5).toLocaleString('sv-SE',{timeZone:'Europe/Madrid'}).slice(0,10);
+    const km=(db.movimiento||{})[fecha]?.[vacaId]?.km||0;
+    resultado.push({fecha, km:parseFloat(km.toFixed(2)), esHoy:i===0});
   }
   res.json({ok:true, data:resultado});
 });
