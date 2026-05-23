@@ -114,6 +114,13 @@ function inferirSalud(v, temp) {
   return v.salud === 'alerta' && temp <= 39.2 ? 'atencion' : v.salud;
 }
 
+function haversineKm(lat1,lng1,lat2,lng2){
+  const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function hoyStr(){ const d=new Date(); return d.toISOString().slice(0,10); }
+
 function tickSimulacion() {
   const db = leerDB();
   if (!db) return;
@@ -386,6 +393,22 @@ app.delete('/api/v1/collarens/:id', auth, (req, res) => {
   db.collarens.splice(idx, 1);
   guardarDB(db);
   res.json({ ok:true });
+});
+
+// ── Movimiento diario — últimos 7 días por vaca ──────────
+app.get('/api/v1/movement/:vacaId', auth, (req, res) => {
+  const db = leerDB();
+  const vacaId = parseInt(req.params.vacaId);
+  const resultado = [];
+  const hoy = hoyStr();
+  // Últimos 7 días
+  for(let i=6;i>=0;i--){
+    const d=new Date(Date.now()-i*864e5);
+    const fecha=d.toISOString().slice(0,10);
+    const km=db.movimiento[fecha]?.[vacaId]?.km||0;
+    resultado.push({fecha, km:parseFloat(km.toFixed(2)), esHoy:fecha===hoy});
+  }
+  res.json({ok:true, data:resultado});
 });
 
 // ── Dashboard ──────────────────────────────────────────
