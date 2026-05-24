@@ -252,7 +252,14 @@ app.post('/api/auth/login', (req, res) => {
 // ── Vacas ─────────────────────────────────────────────
 app.get('/api/v1/cattle', auth, (req, res) => {
   const db = leerDB();
-  const vacas = db.vacas.filter(v => v.activa);
+  const vacas = db.vacas.filter(v => v.activa).map(v => {
+    // Incluir últimos 30 puntos del track directamente — cero peticiones extra en el frontend
+    const track = db.telemetria
+      .filter(t => String(t.vaca_id) === String(v.id))
+      .slice(-30)
+      .map(t => ({ lat:t.lat, lng:t.lng, ts:t.ts }));
+    return { ...v, track };
+  });
   res.json({ ok:true, data:vacas, total:vacas.length });
 });
 
