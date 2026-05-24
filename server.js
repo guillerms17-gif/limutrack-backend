@@ -433,6 +433,20 @@ app.get('/api/v1/telemetry/bulk', auth, (req, res) => {
   res.json({ok:true,data:result});
 });
 
+// ── Heatmap global — todas las vacas ─────────────────────
+app.get('/api/v1/heatmap/all', auth, (req, res) => {
+  const db = leerDB();
+  const dias = parseInt(req.query.dias)||7;
+  const cutoff = new Date(Date.now()-dias*864e5).toISOString();
+  const result = {};
+  db.vacas.filter(v=>v.activa).forEach(v=>{
+    result[v.id] = db.telemetria
+      .filter(t=>String(t.vaca_id)===String(v.id)&&t.ts>=cutoff&&t.lat&&t.lng)
+      .map(t=>({lat:t.lat,lng:t.lng}));
+  });
+  res.json({ok:true,data:result});
+});
+
 // ── Heatmap — historial extendido de posiciones ──────────
 app.get('/api/v1/heatmap/:vacaId', auth, (req, res) => {
   const db = leerDB();
