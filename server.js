@@ -198,8 +198,8 @@ function tickSimulacion() {
     io.emit('gps:update', { vaca_id:v.id, nombre:v.nombre, lat, lng, temp, actividad, comp_actual, salud, ts });
   });
 
-  // Mantener solo últimas 5000 telemetrías por eficiencia
-  if (db.telemetria.length > 5000) db.telemetria = db.telemetria.slice(-5000);
+  // Mantener últimas 50000 telemetrías (~3.5 días con 10 vacas a 30s) para análisis
+  if (db.telemetria.length > 50000) db.telemetria = db.telemetria.slice(-50000);
 
   if (cambiado) guardarDB(db);
 }
@@ -330,7 +330,7 @@ app.post('/api/v1/telemetry', (req, res) => {
   });
   db.vacas[idx] = { ...db.vacas[idx], lat, lng, temp, actividad, bateria_collar:bateria,
     alerta_ia: alertasIA[0]?.mensaje || db.vacas[idx].alerta_ia };
-  if (db.telemetria.length > 5000) db.telemetria = db.telemetria.slice(-5000);
+  if (db.telemetria.length > 50000) db.telemetria = db.telemetria.slice(-50000);
   guardarDB(db);
   io.emit('gps:update', { vaca_id, nombre:db.vacas[idx].nombre, lat, lng, temp, actividad, bateria, alertas:alertasIA, ts:new Date().toISOString() });
   res.json({ ok:true, alertas:alertasIA });
@@ -434,17 +434,50 @@ app.get('/api/v1/telemetry/bulk', auth, (req, res) => {
 });
 
 // ── Heatmap global — todas las vacas ─────────────────────
+// Ponderación de permanencia: cuanto más lento se mueve la vaca, más peso
+// (zonas donde PERMANECE pesan más que zonas donde solo PASA)
+function pesoPermanencia(speedMporMin){
+  if(speedMporMin<3)  return 4.0;   // parada / descanso / rumia
+  if(speedMporMin<10) return 2.5;   // pastando despacio
+  if(speedMporMin<30) return 1.2;   // caminando normal
+  return 0.5;                        // tránsito rápido
+}
+
 app.get('/api/v1/heatmap/all', auth, (req, res) => {
   const db = leerDB();
-  const dias = parseInt(req.query.dias)||7;
-  const cutoff = new Date(Date.now()-dias*864e5).toISOString();
+  // Rango temporal: 'horas' (preset rápido) o desde/hasta (ISO)
+  let desde, hasta=Date.now();
+  if(req.query.desde){ desde=new Date(req.query.desde).getTime(); if(req.query.hasta)hasta=new Date(req.query.hasta).getTime(); }
+  else { const horas=parseFloat(req.query.horas)||168; desde=Date.now()-horas*36e5; }
+  // Filtro de franja horaria (hora del día 0-24), opcional
+  const hmin = req.query.hmin!==undefined ? parseInt(req.query.hmin) : null;
+  const hmax = req.query.hmax!==undefined ? parseInt(req.query.hmax) : null;
+  const enFranja = (ts)=>{
+    if(hmin===null||hmax===null) return true;
+    const h = new Date(ts).getHours(); // hora local del servidor
+    return hmin<=hmax ? (h>=hmin&&h<hmax) : (h>=hmin||h<hmax); // soporta franjas que cruzan medianoche
+  };
+
   const result = {};
   db.vacas.filter(v=>v.activa).forEach(v=>{
-    result[v.id] = db.telemetria
-      .filter(t=>String(t.vaca_id)===String(v.id)&&t.ts>=cutoff&&t.lat&&t.lng)
-      .map(t=>({lat:t.lat,lng:t.lng}));
+    const pts = db.telemetria
+      .filter(t=>String(t.vaca_id)===String(v.id)&&t.lat&&t.lng)
+      .filter(t=>{ const tt=new Date(t.ts).getTime(); return tt>=desde&&tt<=hasta&&enFranja(t.ts); });
+    // calcular peso de permanencia según velocidad respecto al punto anterior
+    const out=[];
+    for(let i=0;i<pts.length;i++){
+      let peso=2; // por defecto
+      if(i>0){
+        const a=pts[i-1], b=pts[i];
+        const dM=haversineKm(a.lat,a.lng,b.lat,b.lng)*1000;
+        const dMin=Math.max(0.1,(new Date(b.ts)-new Date(a.ts))/60000);
+        peso=pesoPermanencia(dM/dMin);
+      }
+      out.push({lat:pts[i].lat,lng:pts[i].lng,ts:pts[i].ts,peso});
+    }
+    result[v.id]=out;
   });
-  res.json({ok:true,data:result});
+  res.json({ok:true,data:result,rango:{desde:new Date(desde).toISOString(),hasta:new Date(hasta).toISOString()}});
 });
 
 // ── Heatmap — historial extendido de posiciones ──────────
