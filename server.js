@@ -529,6 +529,75 @@ io.on('connection', socket => {
   socket.on('disconnect', () => console.log(`❌ Desconectado: ${socket.id}`));
 });
 
+// ── Backfill de datos demo — genera 3 días de historial realista ──
+// Solo si la telemetría es escasa Y todos los collares son simulados.
+// Patrones día/noche: de noche agrupadas (descanso), de día dispersas (pastan).
+function generarHistorialDemo() {
+  const db = leerDB();
+  const vacas = db.vacas.filter(v=>v.activa);
+  if(!vacas.length) return;
+
+  // Guard 1: no hacer nada si ya hay datos suficientes
+  if(db.telemetria.length > 3000) { console.log('   ℹ️  Historial ya poblado, backfill omitido'); return; }
+  // Guard 2: no tocar si hay algún collar REAL (no sim_)
+  const hayReal = db.telemetria.some(t=>t.collar_id && !String(t.collar_id).startsWith('sim_'));
+  if(hayReal) { console.log('   ℹ️  Hay collares reales, backfill omitido'); return; }
+
+  console.log('   ⏳ Generando 3 días de historial demo...');
+  const ahora = Date.now();
+  const PASO = 4*60*1000;        // un punto cada 4 min
+  const DIAS = 3;
+  const inicio = ahora - DIAS*864e5;
+  const W = FENCE.e-FENCE.w, H = FENCE.n-FENCE.s;
+
+  vacas.forEach((v,idx)=>{
+    // Cada vaca tiene su zona de descanso (noche) y su zona de pasto (día)
+    const seed = (idx+1)*0.137;
+    const restLat = FENCE.s + H*(0.25 + (seed%0.4));
+    const restLng = FENCE.w + W*(0.20 + ((seed*1.7)%0.4));
+    const grazeLat= FENCE.s + H*(0.55 + ((seed*2.3)%0.35));
+    const grazeLng= FENCE.w + W*(0.55 + ((seed*1.3)%0.35));
+
+    for(let t=inicio; t<ahora; t+=PASO){
+      const d = new Date(t);
+      const h = d.getHours();
+      const esNoche = (h>=20 || h<6);
+      let lat,lng,actividad;
+      if(esNoche){
+        // Noche: muy agrupada en zona de descanso, apenas se mueve → permanencia
+        lat = restLat + (Math.random()-0.5)*H*0.04;
+        lng = restLng + (Math.random()-0.5)*W*0.04;
+        actividad = 5 + Math.random()*12;
+      } else if(h>=6 && h<8 || h>=18 && h<20){
+        // Amanecer/atardecer: transita entre zonas → paso
+        const f = Math.random();
+        lat = restLat + (grazeLat-restLat)*f + (Math.random()-0.5)*H*0.03;
+        lng = restLng + (grazeLng-restLng)*f + (Math.random()-0.5)*W*0.03;
+        actividad = 55 + Math.random()*30;
+      } else {
+        // Día: dispersa por zona de pasto, movimiento medio → permanencia + algo de paso
+        lat = grazeLat + (Math.random()-0.5)*H*0.22;
+        lng = grazeLng + (Math.random()-0.5)*W*0.22;
+        actividad = 35 + Math.random()*40;
+      }
+      lat = Math.max(FENCE.s, Math.min(FENCE.n, lat));
+      lng = Math.max(FENCE.w, Math.min(FENCE.e, lng));
+      const temp = parseFloat((38.4 + Math.random()*0.6).toFixed(1));
+      db.telemetria.push({
+        vaca_id:v.id, collar_id:`sim_${v.id}`,
+        lat:parseFloat(lat.toFixed(6)), lng:parseFloat(lng.toFixed(6)),
+        temp, actividad:Math.round(actividad), bateria:v.bateria_collar||95,
+        ts:new Date(t).toISOString()
+      });
+    }
+  });
+  // Mantener orden cronológico y respetar cap
+  db.telemetria.sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+  if(db.telemetria.length>50000) db.telemetria=db.telemetria.slice(-50000);
+  guardarDB(db);
+  console.log(`   ✅ Historial demo generado: ${db.telemetria.length} puntos (${DIAS} días)`);
+}
+
 // ── Arrancar ───────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
   console.log('');
@@ -542,4 +611,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('   admin@limutrack.es / limutrack123');
   console.log('🐄 ════════════════════════════════════════');
+  generarHistorialDemo();
 });
