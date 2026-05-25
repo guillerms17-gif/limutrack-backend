@@ -537,17 +537,23 @@ function generarHistorialDemo() {
   const vacas = db.vacas.filter(v=>v.activa);
   if(!vacas.length) return;
 
-  // Guard 1: no hacer nada si ya hay datos suficientes
-  if(db.telemetria.length > 3000) { console.log('   ℹ️  Historial ya poblado, backfill omitido'); return; }
-  // Guard 2: no tocar si hay algún collar REAL (no sim_)
+  // Guard 1: no tocar si hay algún collar REAL (no sim_)
   const hayReal = db.telemetria.some(t=>t.collar_id && !String(t.collar_id).startsWith('sim_'));
   if(hayReal) { console.log('   ℹ️  Hay collares reales, backfill omitido'); return; }
 
-  console.log('   ⏳ Generando 3 días de historial demo...');
+  // Guard 2: mirar el LAPSO de datos, no la cantidad. Si ya hay >2.5 días, no hace falta
+  let oldest = Date.now();
+  db.telemetria.forEach(t=>{ const tt=new Date(t.ts).getTime(); if(tt<oldest)oldest=tt; });
+  const spanDias = (Date.now()-oldest)/864e5;
+  if(db.telemetria.length>0 && spanDias>2.5) { console.log(`   ℹ️  Ya hay ${spanDias.toFixed(1)} días de historial, backfill omitido`); return; }
+
+  console.log('   ⏳ Generando historial demo (relleno hacia atrás)...');
   const ahora = Date.now();
   const PASO = 4*60*1000;        // un punto cada 4 min
   const DIAS = 3;
   const inicio = ahora - DIAS*864e5;
+  // Rellenar solo el HUECO: desde hace 3 días hasta el punto más antiguo existente (sin solapar)
+  const fin = db.telemetria.length>0 ? oldest : ahora;
   const W = FENCE.e-FENCE.w, H = FENCE.n-FENCE.s;
 
   vacas.forEach((v,idx)=>{
@@ -558,7 +564,7 @@ function generarHistorialDemo() {
     const grazeLat= FENCE.s + H*(0.55 + ((seed*2.3)%0.35));
     const grazeLng= FENCE.w + W*(0.55 + ((seed*1.3)%0.35));
 
-    for(let t=inicio; t<ahora; t+=PASO){
+    for(let t=inicio; t<fin; t+=PASO){
       const d = new Date(t);
       const h = d.getHours();
       const esNoche = (h>=20 || h<6);
