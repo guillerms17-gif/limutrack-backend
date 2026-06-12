@@ -37,13 +37,16 @@ app.use(express.json({ limit: '10mb' }));
 // ══════════════════════════════════════════════════════
 //  BASE DE DATOS JSON
 // ══════════════════════════════════════════════════════
+let _dbCache = null;
 function leerDB() {
+  if (_dbCache) return _dbCache;                       // lecturas desde RAM, sin tocar disco
   if (!fs.existsSync(DB_FILE)) return null;
-  try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
+  try { _dbCache = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); return _dbCache; }
   catch { return null; }
 }
 function guardarDB(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  _dbCache = data;                                     // mantener RAM y disco sincronizados
+  fs.writeFileSync(DB_FILE, JSON.stringify(data));     // sin pretty-print: escritura más rápida y archivo menor
 }
 
 // Inicializar BD si no existe
@@ -67,6 +70,8 @@ if (!fs.existsSync(DB_FILE)) {
     telemetria: [],
     alertas:    [],
     collarens:  [],
+    geocercas:  [],
+    _nextGeocerca: 1,
     _nextId:    11,
     _nextAlerta: 1,
   });
@@ -122,6 +127,51 @@ function haversineKm(lat1,lng1,lat2,lng2){
 function hoyStr(){
   const s=new Date().toLocaleString('sv-SE',{timeZone:'Europe/Madrid'});
   return s.slice(0,10);
+}
+
+
+// ── Punto dentro de polígono (ray-casting) ──────────────
+function puntoEnPoligono(lat, lng, poligono) {
+  // poligono = [{lat,lng},{lat,lng},...]
+  if (!poligono || poligono.length < 3) return true; // sin polígono = dentro
+  let dentro = false;
+  for (let i = 0, j = poligono.length - 1; i < poligono.length; j = i++) {
+    const yi = poligono[i].lat, xi = poligono[i].lng;
+    const yj = poligono[j].lat, xj = poligono[j].lng;
+    if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      dentro = !dentro;
+    }
+  }
+  return dentro;
+}
+
+// Comprobar geocercas: genera alertas si una vaca sale de una cerca activa
+function comprobarGeocercas(db, vaca, lat, lng, ts) {
+  if (!db.geocercas) return;
+  db.geocercas.filter(g => g.activa).forEach(g => {
+    const dentro = puntoEnPoligono(lat, lng, g.puntos);
+    const key = `gc_${g.id}_${vaca.id}`;
+    // Evitar repetir alerta: solo alertar si no hay una pendiente igual en las últimas 10 min
+    const yaAlertado = db.alertas.some(a =>
+      a.tipo === 'geocerca' && a.geocerca_id === g.id && a.vaca_id === vaca.id &&
+      !a.resuelta && (Date.now() - new Date(a.ts).getTime()) < 600000
+    );
+    if (!dentro && !yaAlertado) {
+      db.alertas.push({
+        id: db._nextAlerta++,
+        vaca_id: vaca.id,
+        nombre: vaca.nombre,
+        tipo: 'geocerca',
+        geocerca_id: g.id,
+        geocerca_nombre: g.nombre,
+        nivel: 'importante',
+        mensaje: `🚧 ${vaca.nombre} ha salido de la cerca "${g.nombre}"`,
+        resuelta: false,
+        ts: ts || new Date().toISOString()
+      });
+      console.log(`🚧 ALERTA: ${vaca.nombre} fuera de cerca "${g.nombre}"`);
+    }
+  });
 }
 
 function tickSimulacion() {
@@ -194,6 +244,9 @@ function tickSimulacion() {
     db.vacas[idx] = { ...v, lat, lng, temp, actividad, comp_actual, salud };
     cambiado = true;
 
+    // Comprobar geocercas — alertar si sale
+    comprobarGeocercas(db, v, lat, lng, ts);
+
     // Emitir por WebSocket
     io.emit('gps:update', { vaca_id:v.id, nombre:v.nombre, lat, lng, temp, actividad, comp_actual, salud, ts });
   });
@@ -203,6 +256,9 @@ function tickSimulacion() {
 
   if (cambiado) guardarDB(db);
 }
+
+// Migrar DB existente: añadir geocercas si no existen
+{const db=leerDB();if(db&&!db.geocercas){db.geocercas=[];db._nextGeocerca=1;guardarDB(db);console.log('📋 Migrado: geocercas añadidas a BD existente');}}
 
 // Arrancar simulación
 setInterval(tickSimulacion, 30000);
@@ -332,6 +388,8 @@ app.post('/api/v1/telemetry', (req, res) => {
     alerta_ia: alertasIA[0]?.mensaje || db.vacas[idx].alerta_ia };
   if (db.telemetria.length > 50000) db.telemetria = db.telemetria.slice(-50000);
   guardarDB(db);
+  comprobarGeocercas(db, db.vacas[idx], lat, lng, new Date().toISOString());
+  guardarDB(db); // guardar también las alertas de geocerca
   io.emit('gps:update', { vaca_id, nombre:db.vacas[idx].nombre, lat, lng, temp, actividad, bateria, alertas:alertasIA, ts:new Date().toISOString() });
   res.json({ ok:true, alertas:alertasIA });
 });
@@ -431,6 +489,40 @@ app.get('/api/v1/telemetry/bulk', auth, (req, res) => {
       .map(t=>({lat:t.lat,lng:t.lng,temp:t.temp,actividad:t.actividad,ts:t.ts}));
   });
   res.json({ok:true,data:result});
+});
+
+// ── Geocercas (cercas virtuales) ─────────────────────────
+app.get('/api/v1/geocercas', auth, (req, res) => {
+  const db = leerDB();
+  res.json({ ok:true, data: db.geocercas||[] });
+});
+
+app.post('/api/v1/geocercas', auth, (req, res) => {
+  const { nombre, puntos, color } = req.body;
+  if (!nombre || !puntos || puntos.length < 3) return res.status(400).json({ error:'Mínimo 3 puntos y un nombre' });
+  const db = leerDB();
+  if (!db.geocercas) db.geocercas = [];
+  if (!db._nextGeocerca) db._nextGeocerca = 1;
+  const gc = { id: db._nextGeocerca++, nombre, puntos, color: color||'#FF6B6B', activa: true, ts: new Date().toISOString() };
+  db.geocercas.push(gc);
+  guardarDB(db);
+  res.json({ ok:true, data: gc });
+});
+
+app.put('/api/v1/geocercas/:id', auth, (req, res) => {
+  const db = leerDB();
+  const idx = (db.geocercas||[]).findIndex(g => g.id === parseInt(req.params.id));
+  if (idx === -1) return res.status(404).json({ error:'Geocerca no encontrada' });
+  db.geocercas[idx] = { ...db.geocercas[idx], ...req.body };
+  guardarDB(db);
+  res.json({ ok:true, data: db.geocercas[idx] });
+});
+
+app.delete('/api/v1/geocercas/:id', auth, (req, res) => {
+  const db = leerDB();
+  db.geocercas = (db.geocercas||[]).filter(g => g.id !== parseInt(req.params.id));
+  guardarDB(db);
+  res.json({ ok:true });
 });
 
 // ── Heatmap global — todas las vacas ─────────────────────
